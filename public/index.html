@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08070a">
+  <meta name="description" content="Premium digital downloads for the games you love.">
+  <title>Nexventa — Level up your world</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="announcement"><span class="announcement-dot"></span> INSTANT DIGITAL DELIVERY <span class="announcement-divider">·</span> YOUR NEXT LEVEL STARTS HERE</div>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Nexventa home"><span class="brand-mark">N</span><span>NEXVENTA<span class="brand-period">.</span></span></a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/games">Games</a>
+      <a class="nav-link" href="/shop">Shop</a>
+      <a class="nav-link" href="/coupons">Coupons</a>
+      <a class="nav-link" href="/reviews">Reviews</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-button search-trigger" id="search-focus" aria-label="Search products"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg></button>
+      <button class="button button-quiet" id="account-button">Sign in</button>
+      <button class="cart-button" id="cart-open" aria-label="Open shopping bag"><svg viewBox="0 0 24 24"><path d="M5 8h14l1 12H4L5 8Z"></path><path d="M9 9V6a3 3 0 0 1 6 0v3"></path></svg><span>Bag</span><span class="cart-count" id="cart-count">0</span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="home-hero page-section" data-page="home">
+      <a class="home-logo" href="/" aria-label="Nexventa home"><span class="home-logo-mark">N</span><span>NEXVENTA<span class="brand-period">.</span></span></a>
+      <p>Digital goods for the games you love.</p>
+    </section>
+
+    <section class="section categories-section page-section" data-page="games" id="categories">
+      <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> FIND YOUR WORLD</div><h2>What are you <span>playing?</span></h2></div><button class="admin-add small-add" data-action="category-add" title="Add a game or category">+</button></div>
+      <div class="category-grid" id="category-grid"></div>
+    </section>
+
+    <section class="section shop-section page-section" data-page="shop" id="shop">
+      <div class="shop-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> THE GOOD STUFF</div><h2>Worth the <span>upgrade.</span></h2></div><div class="shop-tools"><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg><input id="search-input" type="search" placeholder="Find your next favorite…" autocomplete="off"></label><select id="sort-select" aria-label="Sort products"><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></div></div>
+      <div class="filter-row"><div class="filter-chips" id="filter-chips"></div><span class="product-count" id="product-count"></span></div>
+      <div class="product-grid" id="product-grid" aria-live="polite"></div>
+      <div class="empty-state" id="empty-state" hidden><span>✳</span><h3>No drops found.</h3><p>Try a different search or game.</p></div>
+    </section>
+
+    <section class="section coupon-page page-section" data-page="coupons">
+      <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> SAVINGS FOR YOUR NEXT ORDER</div><h2>Discount <span>vouchers.</span></h2></div></div>
+      <p class="page-description">Buy a voucher, then redeem its private code on a future product order.</p>
+      <div class="voucher-grid" id="voucher-grid"></div>
+      <div class="empty-state" id="voucher-empty" hidden><span>+</span><h3>No vouchers available right now.</h3><p>Check back later for new offers.</p></div>
+      <section class="owned-vouchers"><div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> YOUR ACCOUNT</div><h2>My <span>vouchers.</span></h2></div></div><div id="owned-vouchers" class="owned-voucher-list"></div></section>
+    </section>
+
+    <section class="section reviews-page page-section" data-page="reviews">
+      <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> PLAYER FEEDBACK</div><h2>What players <span>say.</span></h2></div></div>
+      <p class="review-summary" id="review-summary"></p>
+      <div class="review-form-wrap" id="review-form-wrap"></div>
+      <div class="review-list" id="review-list"></div>
+      <div class="empty-state" id="review-empty" hidden><span>★</span><h3>Be the first to share.</h3><p>Tell other players about your Nexventa experience.</p></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><a class="brand" href="/"><span class="brand-mark">N</span><span>NEXVENTA<span class="brand-period">.</span></span></a><button class="text-link" id="support-open">Customer support ↗</button><span>© 2026 NEXVENTA. MADE FOR PLAY.</span></footer>
+
+  <button class="admin-fab" id="admin-open" title="Admin mode" aria-label="Open admin mode"><span>+</span><small>ADMIN</small></button>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="overlay" id="cart-overlay" hidden><aside class="drawer" aria-label="Shopping bag"><div class="drawer-header"><div><div class="eyebrow">YOUR NEXT LEVEL</div><h2>Your bag <span id="bag-heading-count">(0)</span></h2></div><button class="icon-button close-overlay" aria-label="Close bag">×</button></div><div id="cart-items" class="cart-items"></div><div class="coupon-entry"><input id="coupon-input" placeholder="Promo code" aria-label="Promo code"><button id="coupon-apply" class="text-link">Apply ↗</button></div><div class="cart-summary"><div><span>Subtotal</span><strong id="cart-subtotal">$0.00</strong></div><div><span>Discount</span><strong id="cart-discount">—</strong></div><div class="cart-total"><span>Total</span><strong id="cart-total">$0.00</strong></div><button class="button button-primary checkout-button" id="checkout-button">Secure checkout <span>↗</span></button><p class="secure-note">SECURE CHECKOUT · DIGITAL DELIVERY</p></div></aside></div>
+
+  <div class="overlay modal-overlay" id="auth-overlay" hidden><section class="modal-card" aria-label="Account"><button class="icon-button modal-close" aria-label="Close">×</button><div class="eyebrow">YOUR NEXVENTA ACCOUNT</div><h2 id="auth-title">Welcome <span>back.</span></h2><p class="modal-description" id="auth-description">Sign in to find your orders and digital downloads.</p><div id="auth-form-wrap"><form id="auth-form" class="form-stack"><label id="name-field" hidden>Your name<input name="name" autocomplete="name" minlength="2"></label><label>Email address<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" minlength="10" autocomplete="current-password" required></label><button class="button button-primary" id="auth-submit" type="submit">Sign in <span>→</span></button></form><button class="text-link auth-switch" id="auth-switch">New here? Create an account →</button></div><div id="verification-step" hidden><form id="verification-form" class="form-stack"><label>Six-digit code<input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" minlength="6" required></label><button class="button button-primary" type="submit">Verify email <span>→</span></button></form><button class="text-link auth-switch" id="resend-verification">Resend code</button></div><div id="account-content" hidden></div></section></div>
+
+  <div class="overlay modal-overlay" id="admin-login-overlay" hidden><section class="modal-card"><button class="icon-button modal-close" aria-label="Close">×</button><div class="admin-modal-mark">+</div><div class="eyebrow">STORE OWNER ACCESS</div><h2>Admin <span>mode.</span></h2><p class="modal-description">Enter your private admin passcode to manage the shop right here.</p><form id="admin-login-form" class="form-stack"><label>Admin passcode<input name="passcode" type="password" autocomplete="current-password" required></label><button class="button button-primary">Unlock admin mode <span>→</span></button></form></section></div>
+
+  <div class="overlay modal-overlay" id="admin-overlay" hidden><section class="admin-panel"><div class="admin-panel-header"><div><div class="eyebrow"><span class="pulse-dot"></span> OWNER STUDIO</div><h2>Store <span>control.</span></h2></div><div class="admin-header-actions"><button class="button button-quiet" id="admin-logout">Exit admin</button><button class="icon-button" id="admin-close" aria-label="Close">×</button></div></div><div class="admin-stats" id="admin-stats"></div><div class="admin-tabs" role="tablist"><button class="admin-tab active" data-tab="products">Products</button><button class="admin-tab" data-tab="orders">Orders</button><button class="admin-tab" data-tab="customers">Customers</button><button class="admin-tab" data-tab="coupons">Coupons</button><button class="admin-tab" data-tab="games">Games & categories</button><button class="admin-tab" data-tab="reviews">Reviews</button><button class="admin-tab" data-tab="support">Support</button></div><div class="admin-body" id="admin-body"></div></section></div>
+
+  <div class="overlay modal-overlay" id="editor-overlay" hidden><section class="modal-card editor-card"><button class="icon-button modal-close" aria-label="Close">×</button><div class="eyebrow">OWNER STUDIO / PRODUCT</div><h2 id="editor-title">Add a <span>drop.</span></h2><form id="product-form" class="form-stack"><input name="id" type="hidden"><label>Product name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="1000" rows="3"></textarea></label><div class="form-row"><label>Game / section<input name="game" maxlength="80" placeholder="FiveM"></label><label>Category<select name="categoryId" id="product-category"></select></label></div><div class="form-row"><label>Price (USD)<input name="price" type="number" min="0.50" max="100000" step="0.01" required></label><label class="checkbox-label"><input name="featured" type="checkbox"> Feature on home</label></div><label>Product artwork<input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG, WebP · up to 2 MB</small></label><label>Digital product file<input name="digitalFile" type="file" accept=".zip,.pdf,.png,.jpg,.webp,.txt,.rar,.7z"><small>Digital downloads are delivered after payment · up to 10 MB</small></label><button class="button button-primary" type="submit">Save product <span>→</span></button><p class="form-error" id="product-form-error" role="alert" hidden></p></form></section></div>
+
+  <div class="overlay modal-overlay" id="category-overlay" hidden><section class="modal-card"><button class="icon-button modal-close" aria-label="Close">×</button><div class="eyebrow">OWNER STUDIO / GAMES</div><h2>Add a new <span>world.</span></h2><form id="category-form" class="form-stack"><label>Category or game<input name="name" required maxlength="80" placeholder="e.g. Red Dead Redemption 2"></label><label>Game name<input name="game" maxlength="80" placeholder="e.g. RDR2"></label><button class="button button-primary">Create category <span>→</span></button></form></section></div>
+
+  <div class="overlay modal-overlay" id="coupon-overlay" hidden><section class="modal-card"><button class="icon-button modal-close" aria-label="Close">×</button><div class="eyebrow">OWNER STUDIO / PROMOS</div><h2>Create a <span>promo.</span></h2><form id="coupon-form" class="form-stack"><label>Promo code<input name="code" required maxlength="32" placeholder="LEVELUP10"></label><label>Discount (%)<input name="discount" type="number" min="1" max="90" value="10" required></label><button class="button button-primary">Create promo code <span>→</span></button></form></section></div>
+  <div class="overlay modal-overlay" id="voucher-editor-overlay" hidden><section class="modal-card"><button class="icon-button modal-close" aria-label="Close">×</button><div class="eyebrow">OWNER STUDIO / VOUCHERS</div><h2 id="voucher-editor-title">Create a <span>voucher.</span></h2><form id="voucher-offer-form" class="form-stack"><input name="id" type="hidden"><label>Voucher name<input name="name" required maxlength="80" placeholder="$10 off your next order"></label><label>Description<input name="description" maxlength="240" placeholder="A one-time discount for digital products"></label><div class="form-row"><label>Price (USD)<input name="price" type="number" min="0.50" max="100000" step="0.01" required></label><label>Discount (%)<input name="discount" type="number" min="1" max="90" value="10" required></label></div><button class="button button-primary">Save voucher <span>→</span></button></form></section></div>
+</body>
+</html>
