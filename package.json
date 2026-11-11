@@ -4,7 +4,8 @@
   "private": true,
   "description": "A self-hosted storefront for game mods and digital downloads.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "nodemailer": "^10.3.1"

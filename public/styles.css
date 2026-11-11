@@ -176,6 +176,10 @@ body.is-admin .admin-add { display:inline-grid; place-items:center; }
 
 .category-art::after { content:""; position:absolute; right:28px; width:75px;height:75px;border-radius:50%;border:1px solid currentColor;box-shadow:0 0 45px currentColor; }
 
+.category-art img { width:100%; height:100%; object-fit:cover; position:absolute; inset:0; }
+
+.category-thumb { width:36px; height:36px; object-fit:cover; border-radius:4px; display:block; }
+
 .category-copy { position:absolute; inset:auto 20px 19px; z-index:1; }.category-copy small{color:#aaa2b2;font-size:9px;letter-spacing:1px;text-transform:uppercase}.category-copy strong{display:block;margin-top:5px;font:500 20px var(--display)}.category-arrow{position:absolute;right:17px;bottom:18px;color:#bea0e5;font-size:20px}
 
 .shop-section { padding-top:21px; padding-bottom:104px; }
@@ -452,5 +456,28 @@ body { background:#08070a; }
 .home-hero::before { content:""; position:absolute; z-index:-1; inset:12% 18%; background:radial-gradient(ellipse at center,rgba(94,59,126,.19),rgba(67,39,89,.07) 36%,transparent 72%); filter:blur(18px); pointer-events:none; }
 .home-logo-mark { box-shadow:0 0 42px rgba(142,105,171,.13),inset 0 0 22px rgba(166,131,191,.08); text-shadow:0 0 18px rgba(196,166,218,.35); }
 .home-logo>span:last-child { text-shadow:0 0 25px rgba(176,143,199,.16); }
+
+.floating-cards { position:absolute; inset:0; z-index:0; pointer-events:none; perspective:1400px; transform-style:preserve-3d; }
+.home-logo, .home-hero>p { position:relative; z-index:1; }
+.floating-card { position:absolute; display:grid; place-items:center; border-radius:12px; border:1px solid rgba(216,189,255,.24); background:linear-gradient(155deg,rgba(168,121,255,.18),rgba(18,14,24,.92) 65%); box-shadow:0 22px 55px rgba(0,0,0,.5), 0 0 30px rgba(186,140,255,.3), inset 0 0 18px rgba(216,189,255,.08); transform-style:preserve-3d; }
+.floating-card i { font:500 26px/1 var(--display); font-style:normal; color:#d9bcff; text-shadow:0 0 16px rgba(201,157,255,.65); }
+.fc-1 { left:3%; top:16%; width:86px; height:112px; animation:float-1 7.5s ease-in-out infinite; }
+.fc-2 { right:4%; top:12%; width:72px; height:94px; opacity:.92; animation:float-2 8.5s ease-in-out infinite; }
+.fc-2 i,.fc-5 i { color:#ffc2e4; text-shadow:0 0 16px rgba(255,146,205,.55); }
+.fc-2,.fc-5 { box-shadow:0 22px 55px rgba(0,0,0,.5), 0 0 30px rgba(230,136,207,.3), inset 0 0 18px rgba(255,194,228,.08); background:linear-gradient(155deg,rgba(214,100,170,.18),rgba(18,14,24,.92) 65%); }
+.fc-3 { left:2%; top:62%; width:64px; height:84px; opacity:.82; animation:float-3 6.5s ease-in-out infinite; }
+.fc-3 i,.fc-6 i { color:#9ee8d9; text-shadow:0 0 16px rgba(79,222,183,.55); }
+.fc-3,.fc-6 { box-shadow:0 22px 55px rgba(0,0,0,.5), 0 0 30px rgba(79,222,183,.26), inset 0 0 18px rgba(158,232,217,.08); background:linear-gradient(155deg,rgba(69,164,140,.18),rgba(18,14,24,.92) 65%); }
+.fc-4 { right:3%; top:58%; width:80px; height:104px; opacity:.9; animation:float-4 9s ease-in-out infinite; }
+.fc-5 { left:6%; top:83%; width:60px; height:78px; opacity:.76; animation:float-5 7s ease-in-out infinite; }
+.fc-6 { right:7%; top:80%; width:66px; height:86px; opacity:.8; animation:float-6 8s ease-in-out infinite; }
+@keyframes float-1{0%,100%{transform:rotate(-7deg) rotateY(20deg) rotateX(6deg) translateY(0)}50%{transform:rotate(-7deg) rotateY(20deg) rotateX(6deg) translateY(-16px)}}
+@keyframes float-2{0%,100%{transform:rotate(8deg) rotateY(-22deg) rotateX(8deg) translateY(0)}50%{transform:rotate(8deg) rotateY(-22deg) rotateX(8deg) translateY(-12px)}}
+@keyframes float-3{0%,100%{transform:rotate(5deg) rotateY(16deg) rotateX(-6deg) translateY(0)}50%{transform:rotate(5deg) rotateY(16deg) rotateX(-6deg) translateY(-10px)}}
+@keyframes float-4{0%,100%{transform:rotate(-6deg) rotateY(-18deg) rotateX(-5deg) translateY(0)}50%{transform:rotate(-6deg) rotateY(-18deg) rotateX(-5deg) translateY(-14px)}}
+@keyframes float-5{0%,100%{transform:rotate(9deg) rotateY(12deg) translateY(0)}50%{transform:rotate(9deg) rotateY(12deg) translateY(-9px)}}
+@keyframes float-6{0%,100%{transform:rotate(-8deg) rotateY(-14deg) translateY(0)}50%{transform:rotate(-8deg) rotateY(-14deg) translateY(-11px)}}
+@media(max-width:960px){.floating-cards{display:none}}
+
 .form-error { margin:0; color:#e7a5ad; font-size:11px; line-height:1.55; }
 .table-actions { flex-wrap:wrap; }

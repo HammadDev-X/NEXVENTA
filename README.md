@@ -24,6 +24,8 @@ STRIPE_WEBHOOK_SECRET=
 
 All supported server environment variables are listed in `.env.example`. The root `.env` is ignored by Git; copy the example to `.env` if needed and edit your local values. Install the mail dependency with `npm install`, then start the app from this folder with `node server.js` or `npm start`. The server loads `.env` automatically; environment variables already set by your terminal take precedence. Never share or commit your `.env` file.
 
+Run `npm test` to run the automated test suite (uses Node's built-in test runner, no extra dependencies, and never touches your real `data\` folder — each test file gets its own temporary database).
+
 ### Gmail email verification
 
 New customers receive a six-digit code at the email address they register with. Accounts are created only after the code is verified. Codes expire after 10 minutes, are stored as salted hashes, and are limited to five incorrect attempts; resend requests are throttled. Configure `SMTP_USER` with a Gmail account owned by the store and `SMTP_APP_PASSWORD` with a Google App Password (create one in the Google Account security settings after enabling 2-Step Verification). Do not use the store Gmail account's normal password or ask customers for their email password. `SMTP_FROM` is optional and defaults to `SMTP_USER`. Restart the server after changing `.env`. Registration returns a clear setup error if SMTP credentials are missing or mail delivery fails.
@@ -44,7 +46,7 @@ The current checkout is priced in USD. PayPal and multi-currency pricing are not
 
 ## Hosting and security
 
-By default, the server listens only on `127.0.0.1`. For a public deployment, run it behind a maintained HTTPS reverse proxy, set `HOST=0.0.0.0`, set `BASE_URL` to the public HTTPS address, and provide a strong `ADMIN_PASSCODE`, Stripe keys, and webhook secret through the hosting provider's secret/environment settings. Do not commit credentials or expose the SQLite database, `data\files\`, or server logs publicly.
+By default, the server listens only on `127.0.0.1`. For a public deployment, run it behind a maintained HTTPS reverse proxy, set `HOST=0.0.0.0`, set `BASE_URL` to the public HTTPS address, and provide a strong `ADMIN_PASSCODE`, Stripe keys, and webhook secret through the hosting provider's secret/environment settings. Do not commit credentials or expose the SQLite database, `data\files\`, or server logs publicly. When running behind a reverse proxy, also set `TRUST_PROXY=1` so rate limiting reads the real client IP from `X-Forwarded-For` instead of treating every visitor as the proxy's address.
 
 The admin button is available on every page; the actual administrative API is protected by the server-side passcode session. Closing the owner studio revokes that session, so the passcode is required again when reopening it. Deleting a product removes it permanently if it has no order history; products referenced by past orders are archived so receipts and downloads remain intact. Keep the Node.js runtime and host up to date, restrict access to the machine and backups, and run periodic database/file backups.
 
@@ -52,7 +54,7 @@ The admin button is available on every page; the actual administrative API is pr
 
 - Separate responsive Home, Games, Shop, Coupons, and Reviews pages with direct URLs.
 - Customer registration/sign-in, order history, protected checkout, and one-use download links.
-- Inline owner studio for product add/edit/archive/restore, digital and image uploads, categories, paid discount vouchers, promo codes, customers, orders, Stripe refunds, reviews, sales totals, and support tickets.
+- Inline owner studio for product add/edit/archive/restore, digital and image uploads, categories (with their own optional artwork, editable and deletable), paid discount vouchers, promo codes, customers, orders, Stripe refunds, reviews, sales totals, and support tickets.
 - Customer-purchased vouchers that issue private, one-use codes after Stripe confirms payment; signed-in customers can redeem them on a product order.
 - Customer reviews with required 1–5 star ratings and server-side sign-in checks.
 - Persistent SQLite storage and Stripe Checkout/webhook fulfillment.

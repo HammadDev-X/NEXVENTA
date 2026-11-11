@@ -2,8 +2,11 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { promisify } = require("node:util");
 const { DatabaseSync } = require("node:sqlite");
 const nodemailer = require("nodemailer");
+
+const scrypt = promisify(crypto.scrypt);
 
 const ROOT = __dirname;
 function loadEnvFile(filePath) {
@@ -32,14 +35,17 @@ function loadEnvFile(filePath) {
 }
 loadEnvFile(path.join(ROOT, ".env"));
 const PUBLIC = path.join(ROOT, "public");
-const DATA = path.join(ROOT, "data");
+const DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, "data");
 const FILES = path.join(DATA, "files");
 const IMAGES = path.join(DATA, "images");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const BASE_URL = (process.env.BASE_URL || `http://${HOST}:${PORT}`).replace(/\/$/, "");
-const MAX_BODY = 16 * 1024 * 1024;
-const authAttempts = new Map();
+// Sized to comfortably fit a 10MB digital file + a 2MB image together, both base64-encoded (~33% overhead), plus JSON overhead.
+const MAX_BODY = 20 * 1024 * 1024;
+const TRUST_PROXY = process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
+const rateLimitBuckets = new Map();
+const DUMMY_PASSWORD_SALT = crypto.randomBytes(16).toString("hex");
 fs.mkdirSync(FILES, { recursive: true });
 fs.mkdirSync(IMAGES, { recursive: true });
 
@@ -172,6 +178,9 @@ if (!db.prepare("PRAGMA table_info(users)").all().some(column => column.name ===
 if (!db.prepare("PRAGMA table_info(products)").all().some(column => column.name === "active")) {
   db.exec("ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
 }
+if (!db.prepare("PRAGMA table_info(categories)").all().some(column => column.name === "image")) {
+  db.exec("ALTER TABLE categories ADD COLUMN image TEXT NOT NULL DEFAULT ''");
+}
 
 if (db.prepare("SELECT COUNT(*) AS count FROM categories").get().count === 0) {
   const addCategory = db.prepare("INSERT INTO categories(name, slug, game) VALUES (?, ?, ?)");
@@ -200,6 +209,19 @@ const mimeTypes = {
   ".svg": "image/svg+xml",
   ".zip": "application/zip"
 };
+const PAGE_PATHS = new Set(["/", "/games", "/shop", "/coupons", "/reviews"]);
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
 
 function send(res, status, data, headers = {}) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers });
@@ -208,20 +230,39 @@ function send(res, status, data, headers = {}) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = "";
+    const contentLength = Number(req.headers["content-length"] || 0);
+    if (contentLength > MAX_BODY) {
+      reject(Object.assign(new Error("Request is too large."), { status: 413 }));
+      req.destroy();
+      return;
+    }
+    const chunks = [];
+    let size = 0;
     req.on("data", chunk => {
-      body += chunk;
-      if (body.length > MAX_BODY) {
+      size += chunk.length;
+      if (size > MAX_BODY) {
         reject(Object.assign(new Error("Request is too large."), { status: 413 }));
         req.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
     req.on("end", () => {
-      try { resolve(body ? JSON.parse(body) : {}); }
-      catch { reject(Object.assign(new Error("Invalid JSON request."), { status: 400 })); }
+      try {
+        const body = Buffer.concat(chunks).toString("utf8");
+        resolve(body ? JSON.parse(body) : {});
+      } catch { reject(Object.assign(new Error("Invalid JSON request."), { status: 400 })); }
     });
     req.on("error", reject);
   });
+}
+
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (forwarded) return forwarded.split(",")[0].trim();
+  }
+  return req.socket.remoteAddress;
 }
 
 function hash(value) {
@@ -291,6 +332,17 @@ function publicProduct(product) {
   };
 }
 
+function publicCategory(category) {
+  return {
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    game: category.game,
+    image: category.image || "",
+    imageUrl: category.image ? `/uploads/${encodeURIComponent(category.image)}` : ""
+  };
+}
+
 function cleanText(value, maxLength = 500) {
   return String(value || "").trim().slice(0, maxLength);
 }
@@ -300,19 +352,19 @@ function digitalFilePath(storedName) {
   return filename ? path.join(FILES, filename) : "";
 }
 
-function allowAuthAttempt(key, limit, windowMs) {
+function rateLimit(key, limit, windowMs) {
   const now = Date.now();
-  let entry = authAttempts.get(key);
+  let entry = rateLimitBuckets.get(key);
   if (!entry || entry.resetAt <= now) entry = { count: 0, resetAt: now + windowMs };
   if (entry.count >= limit) {
-    authAttempts.set(key, entry);
+    rateLimitBuckets.set(key, entry);
     return false;
   }
   entry.count += 1;
-  authAttempts.set(key, entry);
-  if (authAttempts.size > 10000) {
-    for (const [attemptKey, attempt] of authAttempts) {
-      if (attempt.resetAt <= now) authAttempts.delete(attemptKey);
+  rateLimitBuckets.set(key, entry);
+  if (rateLimitBuckets.size > 10000) {
+    for (const [bucketKey, bucket] of rateLimitBuckets) {
+      if (bucket.resetAt <= now) rateLimitBuckets.delete(bucketKey);
     }
   }
   return true;
@@ -345,8 +397,8 @@ async function sendVerificationCode(email, code) {
   });
 }
 
-function verificationHash(code, salt) {
-  return crypto.scryptSync(code, salt, 32).toString("hex");
+async function verificationHash(code, salt) {
+  return (await scrypt(code, salt, 32)).toString("hex");
 }
 
 async function startEmailVerification({ email, name, passwordHash, passwordSalt }) {
@@ -357,7 +409,7 @@ async function startEmailVerification({ email, name, passwordHash, passwordSalt 
 
   const code = String(crypto.randomInt(100000, 1000000));
   const codeSalt = crypto.randomBytes(16).toString("hex");
-  const codeHash = verificationHash(code, codeSalt);
+  const codeHash = await verificationHash(code, codeSalt);
   db.prepare(`
     INSERT INTO email_verifications(email, name, password_hash, password_salt, code_hash, code_salt, expires_at, last_sent_at, attempts)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+10 minutes'), datetime('now'), 0)
@@ -409,7 +461,8 @@ async function route(req, res) {
       SELECT p.*, c.name AS category FROM products p
       LEFT JOIN categories c ON c.id = p.category_id WHERE p.active=1 ORDER BY p.featured DESC, p.id DESC
     `).all().map(publicProduct);
-    return send(res, 200, { products, categories: db.prepare("SELECT * FROM categories ORDER BY name").all(), stripeEnabled: Boolean(process.env.STRIPE_SECRET_KEY) });
+    const categories = db.prepare("SELECT * FROM categories ORDER BY name").all().map(publicCategory);
+    return send(res, 200, { products, categories, stripeEnabled: Boolean(process.env.STRIPE_SECRET_KEY) });
   }
 
   if (method === "GET" && pathname === "/api/coupon-offers") {
@@ -436,6 +489,7 @@ async function route(req, res) {
   if (method === "POST" && pathname === "/api/reviews") {
     const user = requireUser(req, res);
     if (!user) return;
+    if (!rateLimit(`review:${user.user_id}`, 5, 60 * 60 * 1000)) return send(res, 429, { error: "Too many reviews submitted. Please try again later." });
     const body = await readBody(req);
     const rating = Number(body.rating);
     const message = cleanText(body.message, 1000);
@@ -452,19 +506,19 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/register") {
-    if (!allowAuthAttempt(`register:${req.socket.remoteAddress}`, 8, 15 * 60 * 1000)) return send(res, 429, { error: "Too many account attempts. Please try again later." });
+    if (!rateLimit(`register:${clientIp(req)}`, 8, 15 * 60 * 1000)) return send(res, 429, { error: "Too many account attempts. Please try again later." });
     const body = await readBody(req);
     const name = cleanText(body.name, 80);
     const email = cleanText(body.email, 254).toLowerCase();
     const password = String(body.password || "");
-    if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 10) {
+    if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length > 256 || password.length < 10) {
       return send(res, 400, { error: "Enter your name, a valid email, and a password of at least 10 characters." });
     }
     if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
       return send(res, 409, { error: "An account with that email already exists." });
     }
     const salt = crypto.randomBytes(16).toString("hex");
-    const passwordHash = crypto.scryptSync(password, salt, 64).toString("hex");
+    const passwordHash = (await scrypt(password, salt, 64)).toString("hex");
     try {
       await startEmailVerification({ email, name, passwordHash, passwordSalt: salt });
       return send(res, 202, { ok: true, verificationRequired: true });
@@ -475,7 +529,7 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/resend-verification") {
-    if (!allowAuthAttempt(`resend-verification:${req.socket.remoteAddress}`, 5, 15 * 60 * 1000)) {
+    if (!rateLimit(`resend-verification:${clientIp(req)}`, 5, 15 * 60 * 1000)) {
       return send(res, 429, { error: "Too many verification requests. Please try again later." });
     }
     const body = await readBody(req);
@@ -493,7 +547,7 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/verify-email") {
-    if (!allowAuthAttempt(`verify-email:${req.socket.remoteAddress}`, 15, 15 * 60 * 1000)) {
+    if (!rateLimit(`verify-email:${clientIp(req)}`, 15, 15 * 60 * 1000)) {
       return send(res, 429, { error: "Too many verification attempts. Please try again later." });
     }
     const body = await readBody(req);
@@ -508,7 +562,7 @@ async function route(req, res) {
       db.prepare("DELETE FROM email_verifications WHERE email = ?").run(email);
       return send(res, 400, { error: "That verification code has expired. Please register again." });
     }
-    const candidate = Buffer.from(verificationHash(code, pending.code_salt), "hex");
+    const candidate = Buffer.from(await verificationHash(code, pending.code_salt), "hex");
     const expected = Buffer.from(pending.code_hash, "hex");
     if (!crypto.timingSafeEqual(candidate, expected)) {
       const attempts = pending.attempts + 1;
@@ -538,12 +592,15 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/login") {
-    if (!allowAuthAttempt(`login:${req.socket.remoteAddress}`, 10, 15 * 60 * 1000)) return send(res, 429, { error: "Too many sign-in attempts. Please try again later." });
+    if (!rateLimit(`login:${clientIp(req)}`, 10, 15 * 60 * 1000)) return send(res, 429, { error: "Too many sign-in attempts. Please try again later." });
     const body = await readBody(req);
     const email = cleanText(body.email, 254).toLowerCase();
+    const password = String(body.password || "").slice(0, 256);
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    const candidate = user ? crypto.scryptSync(String(body.password || ""), user.password_salt, 64).toString("hex") : "";
-    if (!user || user.email_verified !== 1 || !crypto.timingSafeEqual(Buffer.from(candidate || "0".repeat(128)), Buffer.from(user.password_hash))) {
+    // Always run scrypt, even for an unknown email, so response time doesn't reveal whether the address is registered.
+    const candidate = (await scrypt(password, user ? user.password_salt : DUMMY_PASSWORD_SALT, 64)).toString("hex");
+    const expected = user ? user.password_hash : candidate;
+    if (!user || user.email_verified !== 1 || !crypto.timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(expected, "hex"))) {
       return send(res, 401, { error: "Email or password is incorrect." });
     }
     createSession(res, user.id);
@@ -551,12 +608,13 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/admin/login") {
-    if (!allowAuthAttempt(`admin:${req.socket.remoteAddress}`, 5, 15 * 60 * 1000)) return send(res, 429, { error: "Too many admin passcode attempts. Please try again later." });
+    if (!rateLimit(`admin:${clientIp(req)}`, 5, 15 * 60 * 1000)) return send(res, 429, { error: "Too many admin passcode attempts. Please try again later." });
     const body = await readBody(req);
     if (!process.env.ADMIN_PASSCODE) return send(res, 503, { error: "Set ADMIN_PASSCODE in your environment to enable admin mode." });
-    const supplied = Buffer.from(String(body.passcode || ""));
-    const configured = Buffer.from(process.env.ADMIN_PASSCODE);
-    if (supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
+    // Hash both sides to a fixed-length digest first so comparison time doesn't leak the configured passcode's length.
+    const supplied = crypto.createHash("sha256").update(String(body.passcode || "")).digest();
+    const configured = crypto.createHash("sha256").update(process.env.ADMIN_PASSCODE).digest();
+    if (!crypto.timingSafeEqual(supplied, configured)) {
       return send(res, 401, { error: "That admin passcode is incorrect." });
     }
     createSession(res, null, true);
@@ -655,14 +713,54 @@ async function route(req, res) {
     const name = cleanText(body.name, 80);
     const game = cleanText(body.game, 80);
     if (!name) return send(res, 400, { error: "A category name is required." });
+    const image = body.imageData ? saveUpload(String(body.imageData), cleanText(body.imageName, 120), 2 * 1024 * 1024, "image") : "";
     const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.randomBytes(3).toString("hex")}`;
     try {
-      const result = db.prepare("INSERT INTO categories(name, slug, game) VALUES (?, ?, ?)").run(name, slug, game);
+      const result = db.prepare("INSERT INTO categories(name, slug, game, image) VALUES (?, ?, ?, ?)").run(name, slug, game, image);
       return send(res, 201, { id: Number(result.lastInsertRowid) });
     } catch (error) {
       if (String(error.message).includes("UNIQUE")) return send(res, 409, { error: "That category already exists." });
       throw error;
     }
+  }
+
+  const categoryMatch = pathname.match(/^\/api\/admin\/categories\/(\d+)$/);
+  if (method === "PUT" && categoryMatch) {
+    if (!requireAdmin(req, res)) return;
+    const body = await readBody(req);
+    const id = Number(categoryMatch[1]);
+    const existing = db.prepare("SELECT * FROM categories WHERE id = ?").get(id);
+    if (!existing) return send(res, 404, { error: "Category not found." });
+    const name = cleanText(body.name, 80);
+    const game = cleanText(body.game, 80);
+    if (!name) return send(res, 400, { error: "A category name is required." });
+    const image = body.imageData ? saveUpload(String(body.imageData), cleanText(body.imageName, 120), 2 * 1024 * 1024, "image") : existing.image;
+    try {
+      db.prepare("UPDATE categories SET name=?, game=?, image=? WHERE id=?").run(name, game, image, id);
+      if (body.imageData && existing.image && path.basename(existing.image) === existing.image) {
+        const oldImage = path.join(IMAGES, existing.image);
+        const otherUse = db.prepare("SELECT 1 FROM categories WHERE image=? AND id<>? LIMIT 1").get(existing.image, id);
+        if (!otherUse && fs.existsSync(oldImage)) fs.unlinkSync(oldImage);
+      }
+      return send(res, 200, { ok: true });
+    } catch (error) {
+      if (String(error.message).includes("UNIQUE")) return send(res, 409, { error: "That category name already exists." });
+      throw error;
+    }
+  }
+
+  if (method === "DELETE" && categoryMatch) {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(categoryMatch[1]);
+    const existing = db.prepare("SELECT image FROM categories WHERE id = ?").get(id);
+    if (!existing) return send(res, 404, { error: "Category not found." });
+    db.prepare("DELETE FROM categories WHERE id=?").run(id);
+    if (existing.image && path.basename(existing.image) === existing.image) {
+      const oldImage = path.join(IMAGES, existing.image);
+      const otherUse = db.prepare("SELECT 1 FROM categories WHERE image=? LIMIT 1").get(existing.image);
+      if (!otherUse && fs.existsSync(oldImage)) fs.unlinkSync(oldImage);
+    }
+    return send(res, 200, { ok: true });
   }
 
   if (method === "POST" && pathname === "/api/admin/coupons") {
@@ -737,6 +835,7 @@ async function route(req, res) {
   }
 
   if (method === "POST" && pathname === "/api/coupons/validate") {
+    if (!rateLimit(`coupon-validate:${clientIp(req)}`, 20, 5 * 60 * 1000)) return send(res, 429, { error: "Too many code attempts. Please try again later." });
     const body = await readBody(req);
     const code = cleanText(body.code, 32).toUpperCase();
     const coupon = db.prepare("SELECT discount_percent FROM coupons WHERE code = ? AND active = 1").get(code);
@@ -757,7 +856,7 @@ async function route(req, res) {
       orderCount: db.prepare("SELECT COUNT(*) AS count FROM orders").get().count,
       customerCount: db.prepare("SELECT COUNT(*) AS count FROM users").get().count,
       products: db.prepare("SELECT p.*, c.name AS category FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.id DESC").all().map(publicProduct),
-      categories: db.prepare("SELECT * FROM categories ORDER BY name").all(),
+      categories: db.prepare("SELECT * FROM categories ORDER BY name").all().map(publicCategory),
       coupons: db.prepare("SELECT * FROM coupons ORDER BY id DESC").all(),
       couponOffers: db.prepare("SELECT * FROM coupon_offers ORDER BY id DESC").all(),
       reviews: db.prepare("SELECT r.*, u.name AS customer_name, u.email FROM reviews r JOIN users u ON u.id=r.user_id ORDER BY r.id DESC LIMIT 100").all(),
@@ -795,6 +894,7 @@ async function route(req, res) {
   if (method === "POST" && pathname === "/api/support") {
     const user = requireUser(req, res);
     if (!user) return;
+    if (!rateLimit(`support:${user.user_id}`, 5, 60 * 60 * 1000)) return send(res, 429, { error: "Too many support requests. Please try again later." });
     const body = await readBody(req);
     const subject = cleanText(body.subject, 120);
     const message = cleanText(body.message, 3000);
@@ -811,6 +911,7 @@ async function route(req, res) {
   if (method === "POST" && pathname === "/api/checkout") {
     const user = requireUser(req, res);
     if (!user) return;
+    if (!rateLimit(`checkout:${user.user_id}`, 15, 10 * 60 * 1000)) return send(res, 429, { error: "Too many checkout attempts. Please try again later." });
     if (!process.env.STRIPE_SECRET_KEY) return send(res, 503, { error: "Payments are not enabled yet. Add your Stripe secret key to the server environment." });
     const body = await readBody(req);
     const ids = [...new Set((Array.isArray(body.productIds) ? body.productIds : []).map(Number).filter(Number.isInteger))].slice(0, 30);
@@ -986,8 +1087,7 @@ async function route(req, res) {
 
   if (method === "GET" && pathname.startsWith("/api/")) return send(res, 404, { error: "API route not found." });
 
-  const pagePaths = new Set(["/", "/games", "/shop", "/coupons", "/reviews"]);
-  const relative = pagePaths.has(pathname) ? "index.html" : pathname.replace(/^\/+/, "");
+  const relative = PAGE_PATHS.has(pathname) ? "index.html" : pathname.replace(/^\/+/, "");
   const target = path.resolve(PUBLIC, relative);
   if (!target.startsWith(`${PUBLIC}${path.sep}`) && target !== path.join(PUBLIC, "index.html")) return send(res, 403, { error: "Forbidden." });
   if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return send(res, 404, { error: "Page not found." });
@@ -1027,6 +1127,9 @@ const server = http.createServer((req, res) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  if (BASE_URL.startsWith("https://")) res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
   route(req, res).catch(error => {
     console.error(`[${new Date().toISOString()}] ${req.method} ${req.url}:`, error);
     if (!res.headersSent) send(res, error.status || 500, { error: error.status ? error.message : "Something went wrong. Check the server logs." });
@@ -1037,3 +1140,5 @@ server.listen(PORT, HOST, () => {
   console.log(`Nexventa is running at ${BASE_URL}`);
   console.log(`Database: ${path.join(DATA, "shop.sqlite")}`);
 });
+
+module.exports = server;

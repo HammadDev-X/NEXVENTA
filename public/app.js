@@ -3,6 +3,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const money = amount => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
 const state = {
   products: [],
+  productsLoaded: false,
   categories: [],
   cart: JSON.parse(localStorage.getItem("nexventa-cart") || "[]"),
   voucherCart: JSON.parse(localStorage.getItem("nexventa-voucher-cart") || "[]"),
@@ -78,6 +79,7 @@ async function loadStore() {
   const store = await api("/api/store");
   state.products = store.products;
   state.categories = store.categories;
+  state.productsLoaded = true;
   renderCategories();
   renderFilters();
   renderProducts();
@@ -129,7 +131,7 @@ function renderCategories() {
   const glyphs = ["✳", "◈", "⌘", "✦", "◇"];
   grid.innerHTML = state.categories.map((category, index) => `
     <button class="category-card" data-category="${escapeHtml(category.name)}" aria-label="Browse ${escapeHtml(category.name)}">
-      <span class="category-art" aria-hidden="true">${glyphs[index % glyphs.length]}</span>
+      <span class="category-art" aria-hidden="true">${category.imageUrl ? `<img src="${category.imageUrl}" alt="" loading="lazy">` : glyphs[index % glyphs.length]}</span>
       <span class="category-copy"><small>${escapeHtml(category.game || "Game collection")}</small><strong>${escapeHtml(category.name)}</strong></span>
       <span class="category-arrow">↗</span>
     </button>
@@ -305,8 +307,10 @@ function addVoucherToCart(id) {
 }
 
 function renderCart() {
-  const available = state.cart.map(id => state.products.find(product => product.id === id)).filter(Boolean);
-  state.cart = available.map(product => product.id);
+  const available = state.productsLoaded
+    ? state.cart.map(id => state.products.find(product => product.id === id)).filter(Boolean)
+    : [];
+  if (state.productsLoaded) state.cart = available.map(product => product.id);
   const vouchers = state.couponOffersLoaded
     ? state.voucherCart.map(id => state.couponOffers.find(offer => offer.id === id)).filter(Boolean)
     : [];
@@ -518,9 +522,33 @@ function renderAdmin() {
     body.innerHTML = `<div class="admin-toolbar"><h3>Customer reviews</h3></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>RATING</th><th>CUSTOMER</th><th>REVIEW</th><th>ACTION</th></tr></thead><tbody>${data.reviews.map(review => `<tr><td>${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</td><td>${escapeHtml(review.customer_name)}</td><td>${escapeHtml(review.message)}</td><td><button class="table-action danger" data-review-delete="${review.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="4">No reviews yet.</td></tr>`}</tbody></table></div>`;
     $$("[data-review-delete]", body).forEach(button => button.addEventListener("click", () => deleteReview(button.dataset.reviewDelete)));
   } else {
-    body.innerHTML = `<div class="admin-toolbar"><h3>Games & categories</h3><button class="button button-primary" id="admin-add-category">+ Add category</button></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>CATEGORY</th><th>GAME / SECTION</th><th>PRODUCTS</th></tr></thead><tbody>${data.categories.map(category => `<tr><td>${escapeHtml(category.name)}</td><td>${escapeHtml(category.game || "—")}</td><td>${data.products.filter(product => product.category_id === category.id).length}</td></tr>`).join("") || `<tr><td colspan="3">No categories yet.</td></tr>`}</tbody></table></div><div class="admin-note">Add a game or category, then assign it to products in the product editor. New sections appear on the storefront automatically.</div>`;
-    $("#admin-add-category").addEventListener("click", () => showOverlay("category-overlay"));
+    body.innerHTML = `<div class="admin-toolbar"><h3>Games & categories</h3><button class="button button-primary" id="admin-add-category">+ Add category</button></div><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>ARTWORK</th><th>CATEGORY</th><th>GAME / SECTION</th><th>PRODUCTS</th><th>ACTIONS</th></tr></thead><tbody>${data.categories.map(category => `<tr><td>${category.imageUrl ? `<img class="category-thumb" src="${category.imageUrl}" alt="">` : "—"}</td><td>${escapeHtml(category.name)}</td><td>${escapeHtml(category.game || "—")}</td><td>${data.products.filter(product => product.category_id === category.id).length}</td><td><div class="table-actions"><button class="table-action" data-category-edit="${category.id}">Edit</button><button class="table-action danger" data-category-delete="${category.id}">Delete</button></div></td></tr>`).join("") || `<tr><td colspan="5">No categories yet.</td></tr>`}</tbody></table></div><div class="admin-note">Add a game or category, then assign it to products in the product editor. New sections appear on the storefront automatically.</div>`;
+    $("#admin-add-category").addEventListener("click", () => openCategoryEditor());
+    $$("[data-category-edit]", body).forEach(button => button.addEventListener("click", () => openCategoryEditor(Number(button.dataset.categoryEdit))));
+    $$("[data-category-delete]", body).forEach(button => button.addEventListener("click", () => removeCategory(button.dataset.categoryDelete)));
   }
+}
+
+function openCategoryEditor(id) {
+  const category = id ? state.adminData?.categories.find(item => item.id === id) : null;
+  const form = $("#category-form");
+  form.reset();
+  $("#category-form-error").hidden = true;
+  form.elements.id.value = category?.id || "";
+  form.elements.name.value = category?.name || "";
+  form.elements.game.value = category?.game || "";
+  $("#category-editor-title").innerHTML = category ? "Edit this <span>world.</span>" : "Add a new <span>world.</span>";
+  showOverlay("category-overlay");
+}
+
+async function removeCategory(id) {
+  if (!confirm("Delete this category? Products using it will become uncategorized.")) return;
+  try {
+    await api(`/api/admin/categories/${id}`, { method: "DELETE" });
+    await loadStore();
+    await loadAdmin("games");
+    toast("Category deleted.");
+  } catch (error) { toast(error.message, true); }
 }
 
 async function removeProduct(id) {
@@ -583,19 +611,39 @@ async function refundOrder(id) {
 async function applyCoupon() {
   const code = $("#coupon-input").value.trim().toUpperCase();
   if (!code) return toast("Enter a promo code first.", true);
-  const subtotal = state.cart.map(id => state.products.find(product => product.id === id)).filter(Boolean).reduce((sum, product) => sum + product.price, 0);
+  const button = $("#coupon-apply");
+  button.disabled = true;
   try {
-    const result = await api("/api/coupons/validate", { method: "POST", body: JSON.stringify({ code, subtotal }) });
+    const result = await api("/api/coupons/validate", { method: "POST", body: JSON.stringify({ code }) });
     state.coupon = code;
     state.discount = result.discount;
+    sessionStorage.setItem("nexventa-coupon", code);
     renderCart();
     toast(`${result.discount}% off applied.`);
   } catch (error) {
     state.coupon = "";
     state.discount = 0;
+    sessionStorage.removeItem("nexventa-coupon");
     renderCart();
     toast(error.message, true);
+  } finally {
+    button.disabled = false;
   }
+}
+
+async function restoreCoupon() {
+  const saved = sessionStorage.getItem("nexventa-coupon");
+  if (!saved) return;
+  if (!state.cart.length && !state.voucherCart.length) return;
+  try {
+    const result = await api("/api/coupons/validate", { method: "POST", body: JSON.stringify({ code: saved }) });
+    state.coupon = saved;
+    state.discount = result.discount;
+    $("#coupon-input").value = saved;
+  } catch {
+    sessionStorage.removeItem("nexventa-coupon");
+  }
+  renderCart();
 }
 
 async function startCheckout() {
@@ -627,6 +675,7 @@ async function refreshAfterPayment() {
     state.voucherCart = [];
     state.coupon = "";
     state.discount = 0;
+    sessionStorage.removeItem("nexventa-coupon");
     persistCart();
   } else if (params.get("checkout") === "cancelled") {
     history.replaceState({}, "", "/");
@@ -657,6 +706,7 @@ function bindEvents() {
     if (!state.coupon) return;
     state.coupon = "";
     state.discount = 0;
+    sessionStorage.removeItem("nexventa-coupon");
     renderCart();
   });
   $("#checkout-button").addEventListener("click", startCheckout);
@@ -759,13 +809,28 @@ function bindEvents() {
   });
   $("#category-form").addEventListener("submit", async event => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const errorMessage = $("#category-form-error");
+    errorMessage.hidden = true;
     try {
-      await api("/api/admin/categories", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))) });
+      const image = await submitFile(form.elements.imageFile.files[0], 2 * 1024 * 1024);
+      const id = form.elements.id.value;
+      const body = {
+        name: form.elements.name.value.trim(),
+        game: form.elements.game.value.trim(),
+        imageName: image.name,
+        imageData: image.data
+      };
+      await api(id ? `/api/admin/categories/${id}` : "/api/admin/categories", { method: id ? "PUT" : "POST", body: JSON.stringify(body) });
       hideOverlay($("#category-overlay"));
       await loadStore();
       await loadAdmin("games");
-      toast("New game category added.");
-    } catch (error) { toast(error.message, true); }
+      toast(id ? "Category updated." : "New game category added.");
+    } catch (error) {
+      errorMessage.textContent = error.message;
+      errorMessage.hidden = false;
+      toast(error.message, true);
+    }
   });
   $("#coupon-form").addEventListener("submit", async event => {
     event.preventDefault();
@@ -777,7 +842,7 @@ function bindEvents() {
     } catch (error) { toast(error.message, true); }
   });
   $$("[data-action=category-add]").forEach(button => button.addEventListener("click", () => {
-    if (state.admin) showOverlay("category-overlay");
+    if (state.admin) openCategoryEditor();
     else toast("Unlock admin mode to add a game.", true);
   }));
   $("#voucher-offer-form").addEventListener("submit", async event => {
@@ -805,6 +870,7 @@ async function boot() {
   try {
     await Promise.all([loadStore(), loadIdentity(), loadCouponOffers(), loadReviews()]);
     renderCart();
+    await restoreCoupon();
     await refreshAfterPayment();
     if (state.page === "shop" && new URLSearchParams(location.search).has("focus")) $("#search-input").focus();
   } catch (error) {
